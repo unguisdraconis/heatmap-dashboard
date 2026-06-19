@@ -2,19 +2,32 @@
  * HeatmapChart.jsx
  * Global Weekly Average Temperatures — 2025
  *
- * Data source : Open-Meteo Archive API (historical)
- * Architecture: Chart Design System — ResponsiveChartWrapper pattern
- * Rendering   : D3 for scales / math, React for SVG <rect> elements
- * Reference   : react-graph-gallery.com/heatmap
+ * New in this version
+ * ───────────────────
+ * 1. Legend hover highlight
+ *    Mousing over the colour-scale dims every cell whose weekly mean falls
+ *    outside a ±10 % temperature band around the cursor.  Opacity updates are
+ *    applied imperatively through D3 (`.selectAll('.hm-cell')`) so React never
+ *    re-diffs the 1 040 <rect> elements during pointer movement.
  *
- * Shared infrastructure required (Chart Design System):
- *   ./ResponsiveChartWrapper   — layout shell (render-prop, measures container)
- *   ./ChartTooltip             — HTML tooltip (absolute-positioned over SVG)
- *   ../utils/cssVar            — reads CSS custom properties at render time
+ * 2. Sequential entrance animation
+ *    On data load the chart wrapper eases in (opacity + translateY), then each
+ *    cell reveals individually with a staggered CSS animation delay — the
+ *    coolest cell first, the hottest cell last — producing a diagonal cool→warm
+ *    fill wave.  The prefers-reduced-motion media query disables both effects.
  *
- * NOTE: The default chart-widget height in App.css is 480px.
- * For 20 rows this component works best at 560–600px.
- * Override per-card with: .heatmap-card { height: 580px; }
+ * Architecture (Chart Design System)
+ * ────────────────────────────────────
+ *   ResponsiveChartWrapper (title + palette dropdown)
+ *     └─ div key={animKey}  ← wrapper entrance animation target
+ *          ├─ HeatmapSVG    ← D3 scales / React JSX cells / D3 hover effect
+ *          ├─ ColorScaleLegend  ← canvas gradient + mouse tracking
+ *          └─ ChartTooltip  ← HTML, absolute-positioned
+ *
+ * Shared infrastructure required:
+ *   ./ResponsiveChartWrapper
+ *   ./ChartTooltip
+ *   ../utils/cssVar
  */
 
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
@@ -24,9 +37,8 @@ import { ResponsiveChartWrapper } from "./ResponsiveChartWrapper";
 import { ChartTooltip } from "./ChartTooltip";
 import { cssVar } from "../utils/cssVar";
 
-// ─── Configuration ─────────────────────────────────────────────────────────────
+// ─── City list (north → south) ────────────────────────────────────────────────
 
-// 20 cities ordered north → south so the heatmap reads geographically.
 const CITIES = [
   { name: "Reykjavik", lat: 64.15, lon: -21.94 },
   { name: "Anchorage", lat: 61.22, lon: -149.9 },
@@ -55,8 +67,6 @@ const YEAR_START = new Date("2025-01-01");
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const NUM_WEEKS = 52;
 
-// Week index where each calendar month starts in 2025 (approximate).
-// Jan 1 = week 0, Feb 1 ≈ week 4, Mar 1 ≈ week 8, …
 const MONTH_TICK_WEEKS = [0, 4, 8, 13, 17, 22, 26, 30, 35, 39, 43, 48];
 const MONTH_TICK_LABELS = [
   "Jan",
@@ -73,12 +83,23 @@ const MONTH_TICK_LABELS = [
   "Dec",
 ];
 
-// Pixels reserved at the bottom of the wrapper for the color-scale legend.
-const LEGEND_H = 52;
+// Pixels below the SVG reserved for the colour-scale legend strip.
+const LEGEND_H = 60;
 
-// ─── Color Palettes ─────────────────────────────────────────────────────────────
-// Sequential palettes are ordered low→high = cool→warm by default.
-// RdYlBu is diverging and inverted so blue = cold, red = hot.
+// ─── Animation constants ──────────────────────────────────────────────────────
+
+const EASE_IN_MS = 400; // wrapper slide-up + fade duration (ms)
+const FILL_MS = 2500; // window across which cell delays are spread (ms)
+const CELL_DURATION = 380; // single cell reveal duration (ms)
+const ANIM_BUFFER = 650; // extra ms after last cell before animationDone fires
+
+// ─── Hover highlight constants ────────────────────────────────────────────────
+
+const HOVER_BAND_PCT = 0.1; // ± 10 % of domain range is "highlighted"
+const DIM_OPACITY = 0.08; // opacity of non-highlighted cells
+const HOVER_TRANS_MS = 150; // D3 transition duration for opacity changes (ms)
+
+// ─── Colour palettes ──────────────────────────────────────────────────────────
 
 const PALETTES = {
   viridis: { label: "Viridis", fn: d3.interpolateViridis },
@@ -93,14 +114,40 @@ const PALETTES = {
   },
 };
 
-// ─── Data Fetching ──────────────────────────────────────────────────────────────
+// ─── CSS keyframes ────────────────────────────────────────────────────────────
+// Injected via a <style> tag so this file stays self-contained.
+// heatmapWrapperReveal  — the outer div entrance effect
+// heatmapCellReveal     — per-cell staggered opacity reveal
 
-/**
- * Fetches 2025 daily mean temperatures for all 20 cities in a single request
- * then aggregates into 20 × 52 week-average cells.
- *
- * Returns: Array<{ city: string, week: number (0–51), value: number (°C) }>
- */
+const ANIMATION_CSS = `
+@keyframes heatmapWrapperReveal {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes heatmapCellReveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+`;
+
+// ─── useReducedMotion ─────────────────────────────────────────────────────────
+
+function useReducedMotion() {
+  const MQ = "(prefers-reduced-motion: reduce)";
+  const [val, setVal] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(MQ).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(MQ);
+    const cb = (e) => setVal(e.matches);
+    mq.addEventListener("change", cb);
+    return () => mq.removeEventListener("change", cb);
+  }, []);
+  return val;
+}
+
+// ─── Data fetching ────────────────────────────────────────────────────────────
+
 async function loadHeatmapData() {
   const url =
     "https://archive-api.open-meteo.com/v1/archive" +
@@ -114,12 +161,9 @@ async function loadHeatmapData() {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Open-Meteo API returned HTTP ${res.status}`);
   const json = await res.json();
-
-  // The API returns an array when multiple lat/lon pairs are provided.
   const cityResults = Array.isArray(json) ? json : [json];
 
-  // 1. Flatten to long daily rows, tag each with its 7-day bucket (0–51).
-  //    Math.min folds Dec 31 into week 51 → exactly 52 columns.
+  // 1. Flatten → long daily rows tagged with week bucket 0–51.
   const daily = cityResults.flatMap((city, i) =>
     city.daily.time.map((t, j) => ({
       city: CITIES[i].name,
@@ -140,19 +184,35 @@ async function loadHeatmapData() {
   ).flatMap(([city, weeks]) =>
     weeks.map(([week, value]) => ({ city, week, value })),
   );
-  // → [{ city: 'Reykjavik', week: 0, value: -0.4 }, …]  (up to 20 × 52 rows)
+  // → [{ city: 'Reykjavik', week: 0, value: -0.4 }, …]  (up to 20 × 52 cells)
 }
 
-// ─── Color Scale Legend (canvas gradient + D3 tick marks) ──────────────────────
+// ─── Week date label ──────────────────────────────────────────────────────────
 
-function ColorScaleLegend({ colorScale, min, max, containerWidth }) {
+function weekLabel(weekIndex) {
+  const start = new Date(YEAR_START.getTime() + weekIndex * WEEK_MS);
+  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const fmt = (d) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+// ─── ColorScaleLegend ─────────────────────────────────────────────────────────
+//
+// Renders a canvas gradient bar with D3 tick marks below it.
+//
+// New: mouse tracking on the canvas reports the hovered temperature (°C) via
+// the onHover(temp | null) callback.  A white indicator line + floating label
+// follows the cursor.
+
+function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
   const canvasRef = useRef(null);
+  const [hover, setHover] = useState(null); // { x: px, temp: °C } | null
 
-  // Gradient bar width: proportional to container but capped sensibly.
-  const gradW = Math.max(120, Math.min(containerWidth - 140, 380));
+  const gradW = Math.max(100, Math.min(containerWidth - 150, 380));
   const gradH = 12;
 
-  // Draw gradient once whenever scale or domain changes.
+  // Paint gradient whenever scale, domain, or dimensions change.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -164,52 +224,124 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth }) {
     }
   }, [colorScale, min, max, gradW, gradH]);
 
-  // Tick positions derived from a linear helper scale.
+  // Convert a clientX position to { x (canvas-local px), temp (°C) }.
+  const resolve = useCallback(
+    (clientX) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      const x = Math.max(0, Math.min(gradW, clientX - rect.left));
+      return { x, temp: min + ((max - min) * x) / gradW };
+    },
+    [min, max, gradW],
+  );
+
+  const handleMouseMove = useCallback(
+    (e) => {
+      const h = resolve(e.clientX);
+      if (!h) return;
+      setHover(h);
+      onHover(h.temp);
+    },
+    [resolve, onHover],
+  );
+
+  const handleMouseLeave = useCallback(() => {
+    setHover(null);
+    onHover(null);
+  }, [onHover]);
+
+  // Tick positions derived from a D3 linear helper scale.
   const tickScale = useMemo(
     () => d3.scaleLinear().domain([min, max]).range([0, gradW]),
     [min, max, gradW],
   );
   const ticks = tickScale.ticks(5);
 
+  // Clamp floating label so it doesn't overflow the canvas edges.
+  const labelX = hover ? Math.max(22, Math.min(gradW - 22, hover.x)) : 0;
+
   return (
     <div
       style={{
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         gap: 8,
-        paddingLeft: 6,
-        paddingTop: 4,
+        paddingTop: 6,
       }}
     >
-      {/* Cold end label */}
-      <span style={legendLabelStyle}>{min.toFixed(1)}°C</span>
+      {/* Cold-end label */}
+      <span style={LABEL_STYLE}>{min.toFixed(1)}°C</span>
 
-      {/* Gradient bar + tick marks */}
       <div>
-        <canvas
-          ref={canvasRef}
-          width={gradW}
-          height={gradH}
-          style={{
-            display: "block",
-            borderRadius: 2,
-            border: `1px solid ${cssVar("--border")}`,
-          }}
-          aria-hidden="true"
-        />
+        {/* Gradient canvas + hover overlay */}
+        <div style={{ position: "relative", display: "inline-block" }}>
+          <canvas
+            ref={canvasRef}
+            width={gradW}
+            height={gradH}
+            style={{
+              display: "block",
+              borderRadius: 2,
+              border: `1px solid ${cssVar("--border")}`,
+              cursor: "crosshair",
+            }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            aria-label="Colour scale — hover to highlight matching cells"
+          />
+
+          {/* Vertical indicator line */}
+          {hover && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: hover.x,
+                width: 2,
+                height: gradH,
+                background: "rgba(255,255,255,0.92)",
+                boxShadow: "0 0 5px rgba(0,0,0,0.5)",
+                borderRadius: 1,
+                pointerEvents: "none",
+                transform: "translateX(-50%)",
+              }}
+            />
+          )}
+
+          {/* Floating temperature label below indicator */}
+          {hover && (
+            <div
+              style={{
+                position: "absolute",
+                top: gradH + 2,
+                left: labelX,
+                transform: "translateX(-50%)",
+                background: cssVar("--chart-tooltip-bg"),
+                border: `1px solid ${cssVar("--chart-tooltip-border")}`,
+                borderRadius: 4,
+                padding: "2px 5px",
+                fontSize: 9,
+                fontFamily: "var(--mono)",
+                color: cssVar("--chart-tooltip-text"),
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+                zIndex: 20,
+              }}
+            >
+              {hover.temp.toFixed(1)}°C
+            </div>
+          )}
+        </div>
+
+        {/* D3 tick marks */}
         <svg
           width={gradW}
-          height={18}
+          height={20}
           style={{ display: "block", overflow: "visible" }}
         >
           {ticks.map((t) => (
             <g key={t} transform={`translate(${tickScale(t)},0)`}>
-              <line
-                y1={0}
-                y2={4}
-                stroke={cssVar("--chart-axis")}
-                strokeWidth={1}
-              />
+              <line y2={4} stroke={cssVar("--chart-axis")} strokeWidth={1} />
               <text
                 y={14}
                 textAnchor="middle"
@@ -224,197 +356,281 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth }) {
         </svg>
       </div>
 
-      {/* Hot end label */}
-      <span style={legendLabelStyle}>{max.toFixed(1)}°C</span>
+      {/* Warm-end label */}
+      <span style={LABEL_STYLE}>{max.toFixed(1)}°C</span>
     </div>
   );
 }
 
-const legendLabelStyle = {
+const LABEL_STYLE = {
   fontSize: 10,
   color: "var(--chart-text)",
   fontFamily: "var(--mono)",
-  minWidth: 40,
+  minWidth: 38,
   textAlign: "right",
+  paddingTop: 2,
 };
 
-// ─── Heatmap SVG (inner) ───────────────────────────────────────────────────────
-// D3 owns scale computation; React owns SVG rendering.
-// Pattern from react-graph-gallery.com/heatmap
+// ─── HeatmapSVG ───────────────────────────────────────────────────────────────
+//
+// D3 owns scale computation; React owns SVG <rect> elements.
+// Pattern from react-graph-gallery.com/heatmap.
+//
+// Opacity is managed in two non-overlapping phases:
+//
+//   Phase A — animation running (!animationDone)
+//     Each rect receives a CSS `animation` inline style (opacity 0 → 1) with
+//     a staggered delay proportional to its temperature rank (coolest first).
+//     React does NOT set an explicit opacity; the CSS keyframe owns that attribute.
+//
+//   Phase B — animation complete (animationDone)
+//     The CSS animation is removed.  D3 then manages the `opacity` SVG
+//     attribute imperatively via useEffect — no React re-diffing of the
+//     1 040 cells occurs on every mousemove event.
 
-function HeatmapSVG({ width, height, data, colorScale, onTooltip }) {
-  // Left margin sized to the longest city label ("Rio de Janeiro" ≈ 105 px at 11 px).
-  const margin = { top: 8, right: 16, bottom: 32, left: 112 };
+function HeatmapSVG({
+  width,
+  height,
+  data,
+  colorScale,
+  onTooltip,
+  hoveredLegendTemp, // °C | null — set by ColorScaleLegend via parent
+  animationDone, // boolean  — true once all cell animations have finished
+  animEnabled, // boolean  — false when prefers-reduced-motion
+}) {
+  const svgRef = useRef(null);
 
-  const w = width - margin.left - margin.right;
-  const h = height - margin.top - margin.bottom;
-
-  // ── Scales ──────────────────────────────────────────────────────────────────
-  // X: 52 string keys ("0"…"51") → band scale keeps padding generic.
-  const weekKeys = useMemo(() => d3.range(NUM_WEEKS).map(String), []);
-
-  const xScale = useMemo(
-    () => d3.scaleBand().domain(weekKeys).range([0, w]).padding(0.05),
-    [w, weekKeys],
-  );
-  const yScale = useMemo(
-    () => d3.scaleBand().domain(CITY_NAMES).range([0, h]).padding(0.06),
-    [h],
-  );
-
-  // O(1) cell lookup: "city|week" → value
-  const dataMap = useMemo(() => {
+  // ── O(1) cell-value lookup ───────────────────────────────────────────────
+  const cellMap = useMemo(() => {
     const m = new Map();
     data.forEach((d) => m.set(`${d.city}|${d.week}`, d.value));
     return m;
   }, [data]);
 
-  if (w <= 0 || h <= 0) return null;
+  // ── Rank cells by temperature for CSS animation stagger ──────────────────
+  // rank 0 = coldest cell (reveals first), rank N-1 = hottest (reveals last).
+  const { rankMap, totalCells } = useMemo(() => {
+    const sorted = data
+      .filter((d) => d.value != null)
+      .sort((a, b) => a.value - b.value);
+    return {
+      rankMap: new Map(sorted.map((d, i) => [`${d.city}|${d.week}`, i])),
+      totalCells: sorted.length,
+    };
+  }, [data]);
 
-  // Read theme tokens at render time (CSS custom properties).
-  const textColor = cssVar("--chart-text");
-  const axisColor = cssVar("--chart-axis");
+  // ── Layout ────────────────────────────────────────────────────────────────
+  const margin = useMemo(
+    () => ({ top: 18, right: 10, bottom: 28, left: 114 }),
+    [],
+  );
+  const w = Math.max(0, width - margin.left - margin.right);
+  const h = Math.max(0, height - margin.top - margin.bottom);
+
+  const bandW = w / NUM_WEEKS;
+  const yScale = useMemo(
+    () => d3.scaleBand().domain(CITY_NAMES).range([0, h]).paddingInner(0.06),
+    [h],
+  );
+  const bandH = yScale.bandwidth();
+
+  // ── D3 hover-highlight effect (Phase B only) ─────────────────────────────
+  // Runs imperatively so React never re-diffs the rect elements on mousemove.
+  useEffect(() => {
+    if (!svgRef.current || !animationDone) return;
+    const [lo, hi] = colorScale.domain();
+    const band = (hi - lo) * HOVER_BAND_PCT;
+
+    d3.select(svgRef.current)
+      .selectAll(".hm-cell")
+      .transition("hoverOpacity")
+      .duration(HOVER_TRANS_MS)
+      .attr(
+        "opacity",
+        hoveredLegendTemp === null
+          ? 1
+          : function () {
+              const v = parseFloat(this.dataset.value);
+              return isNaN(v)
+                ? 1
+                : Math.abs(v - hoveredLegendTemp) <= band
+                  ? 1
+                  : DIM_OPACITY;
+            },
+      );
+  }, [hoveredLegendTemp, animationDone, colorScale]);
+
+  // ── Reset all cells to full opacity when animation completes ─────────────
+  useEffect(() => {
+    if (!svgRef.current || !animationDone) return;
+    d3.select(svgRef.current).selectAll(".hm-cell").attr("opacity", 1);
+  }, [animationDone]);
+
+  if (!w || !h) return null;
 
   return (
     <svg
+      ref={svgRef}
       width={width}
       height={height}
-      style={{ position: "absolute", top: 0, left: 0, overflow: "visible" }}
-      aria-label="Heatmap: weekly average temperatures for 20 cities across 2025"
+      style={{ overflow: "visible" }}
     >
       <g transform={`translate(${margin.left},${margin.top})`}>
-        {/* ── Heat cells ────────────────────────────────────────────────── */}
-        {CITY_NAMES.flatMap((city) =>
-          d3.range(NUM_WEEKS).map((week) => {
-            const value = dataMap.get(`${city}|${week}`);
-            if (value == null) return null;
-            return (
-              <rect
-                key={`${city}|${week}`}
-                x={xScale(String(week))}
-                y={yScale(city)}
-                width={Math.max(1, xScale.bandwidth())}
-                height={Math.max(1, yScale.bandwidth())}
-                fill={colorScale(value)}
-                rx={1}
-                style={{ cursor: "default" }}
-                onMouseEnter={() =>
-                  onTooltip({
-                    // Coords relative to the wrapper's top-left corner.
-                    x:
-                      xScale(String(week)) +
-                      xScale.bandwidth() / 2 +
-                      margin.left,
-                    y: yScale(city) + margin.top,
-                    city,
-                    week,
-                    value,
-                  })
-                }
-                onMouseLeave={() => onTooltip(null)}
-              />
-            );
-          }),
-        )}
-
-        {/* ── Y-axis: city labels ──────────────────────────────────────── */}
+        {/* ── City labels (Y axis) ─────────────────────────────────────── */}
         {CITY_NAMES.map((city) => (
           <text
             key={city}
-            x={-8}
-            y={yScale(city) + yScale.bandwidth() / 2}
+            x={-7}
+            y={(yScale(city) ?? 0) + bandH / 2}
             textAnchor="end"
             dominantBaseline="middle"
-            fill={textColor}
-            fontSize={11}
+            fontSize={10}
+            fill={cssVar("--chart-text")}
+            fontFamily="var(--sans)"
           >
             {city}
           </text>
         ))}
 
-        {/* ── X-axis: month labels ─────────────────────────────────────── */}
+        {/* ── Month ticks (X axis) ─────────────────────────────────────── */}
         {MONTH_TICK_WEEKS.map((wk, i) => (
-          <text
-            key={i}
-            x={(xScale(String(wk)) ?? 0) + xScale.bandwidth() / 2}
-            y={h + 18}
-            textAnchor="middle"
-            fill={textColor}
-            fontSize={10}
-          >
-            {MONTH_TICK_LABELS[i]}
-          </text>
+          <g key={i} transform={`translate(${wk * bandW},${h + 4})`}>
+            <line y2={4} stroke={cssVar("--chart-axis")} strokeWidth={1} />
+            <text
+              y={13}
+              fontSize={9}
+              fill={cssVar("--chart-text")}
+              fontFamily="var(--sans)"
+              textAnchor="start"
+            >
+              {MONTH_TICK_LABELS[i]}
+            </text>
+          </g>
         ))}
 
-        {/* ── Axis baselines ───────────────────────────────────────────── */}
-        <line
-          x1={0}
-          x2={w}
-          y1={h + 4}
-          y2={h + 4}
-          stroke={axisColor}
-          strokeWidth={1}
-        />
-        <line x1={0} x2={0} y1={0} y2={h} stroke={axisColor} strokeWidth={1} />
+        {/* ── Heatmap cells ─────────────────────────────────────────────── */}
+        {CITY_NAMES.flatMap((city) =>
+          Array.from({ length: NUM_WEEKS }, (_, week) => {
+            const value = cellMap.get(`${city}|${week}`);
+            if (value == null) return null;
+
+            // Phase A: staggered CSS animation (opacity not set by React).
+            // Phase B: no inline style — D3 useEffect owns opacity.
+            let animStyle;
+            if (animEnabled && !animationDone) {
+              const rank = rankMap.get(`${city}|${week}`) ?? 0;
+              const delay =
+                EASE_IN_MS + (rank / Math.max(1, totalCells - 1)) * FILL_MS;
+              animStyle = {
+                opacity: 0,
+                animation: `heatmapCellReveal ${CELL_DURATION}ms ease-out ${delay}ms forwards`,
+              };
+            }
+
+            return (
+              <rect
+                key={`${city}-${week}`}
+                className="hm-cell"
+                data-value={value} // read by the D3 hover effect
+                x={week * bandW}
+                y={yScale(city) ?? 0}
+                width={Math.max(0, bandW - 0.6)}
+                height={Math.max(0, bandH)}
+                fill={colorScale(value)}
+                style={animStyle} // undefined in Phase B → no conflict with D3
+                // Tooltip is suppressed during animation (cells may not be visible yet).
+                onMouseEnter={
+                  animationDone
+                    ? () =>
+                        onTooltip({
+                          x: week * bandW + margin.left + bandW / 2,
+                          y: (yScale(city) ?? 0) + margin.top,
+                          city,
+                          week,
+                          value,
+                          fill: colorScale(value),
+                        })
+                    : undefined
+                }
+                onMouseLeave={animationDone ? () => onTooltip(null) : undefined}
+              />
+            );
+          }),
+        )}
       </g>
     </svg>
   );
 }
 
-// ─── Exported Component ────────────────────────────────────────────────────────
+// ─── HeatmapChart (outer component) ──────────────────────────────────────────
 
 export function HeatmapChart() {
+  const [palette, setPalette] = useState("viridis");
   const [data, setData] = useState([]);
-  const [status, setStatus] = useState("idle"); // idle | loading | error | ready
-  const [fetchErr, setFetchErr] = useState("");
-  const [paletteKey, setPaletteKey] = useState("viridis");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [tooltip, setTooltip] = useState(null);
+  const [hoveredTemp, setHoveredTemp] = useState(null); // legend hover (°C | null)
+  const [animKey, setAnimKey] = useState(0); // bump to replay animation
+  const [animationDone, setAnimationDone] = useState(false);
 
-  const handleTooltip = useCallback((val) => setTooltip(val), []);
+  const prefersReducedMotion = useReducedMotion();
+  const animEnabled = !prefersReducedMotion;
 
-  // Fetch once on mount.
+  const handleTooltip = useCallback((v) => setTooltip(v), []);
+  const handleLegendHover = useCallback((temp) => setHoveredTemp(temp), []);
+
+  // ── Fetch data once ────────────────────────────────────────────────────────
   useEffect(() => {
-    setStatus("loading");
     loadHeatmapData()
       .then((d) => {
         setData(d);
-        setStatus("ready");
+        setLoading(false);
+        setAnimKey((k) => k + 1); // replay animation on fresh data
+        setAnimationDone(false);
       })
       .catch((e) => {
-        setFetchErr(e.message);
-        setStatus("error");
+        setError(e.message);
+        setLoading(false);
+        setAnimationDone(true);
       });
   }, []);
 
-  // Temperature domain across all loaded cells.
-  const { minTemp, maxTemp } = useMemo(() => {
-    if (!data.length) return { minTemp: -10, maxTemp: 40 };
+  // ── Mark animation complete after the last cell finishes ───────────────────
+  // Timer = wrapper ease-in + full stagger window + one cell duration + buffer.
+  useEffect(() => {
+    if (!animEnabled || !data.length) {
+      setAnimationDone(true);
+      return;
+    }
+    setAnimationDone(false);
+    const ms = EASE_IN_MS + FILL_MS + CELL_DURATION + ANIM_BUFFER;
+    const t = setTimeout(() => setAnimationDone(true), ms);
+    return () => clearTimeout(t);
+  }, [animKey, animEnabled, data.length]);
+
+  // ── Colour scale ───────────────────────────────────────────────────────────
+  const colorScale = useMemo(() => {
     const vals = data.map((d) => d.value).filter((v) => v != null);
-    return { minTemp: d3.min(vals), maxTemp: d3.max(vals) };
-  }, [data]);
+    const lo = d3.min(vals) ?? -15;
+    const hi = d3.max(vals) ?? 45;
+    return d3.scaleSequential(PALETTES[palette].fn).domain([lo, hi]);
+  }, [palette, data]);
 
-  // Sequential color scale, rebuilt when palette or domain changes.
-  const colorScale = useMemo(
-    () =>
-      d3.scaleSequential(PALETTES[paletteKey].fn).domain([minTemp, maxTemp]),
-    [paletteKey, minTemp, maxTemp],
-  );
+  // ── Wrapper entrance animation ─────────────────────────────────────────────
+  // key={animKey} forces a new DOM node on data load, which restarts the
+  // CSS animation even if the palette is unchanged.
+  const wrapperStyle = animEnabled
+    ? { animation: `heatmapWrapperReveal ${EASE_IN_MS}ms ease-out both` }
+    : undefined;
 
-  // Palette dropdown — passed to ResponsiveChartWrapper's controls slot.
+  // ── Palette selector (controls slot) ──────────────────────────────────────
   const paletteControl = (
     <select
-      value={paletteKey}
-      onChange={(e) => setPaletteKey(e.target.value)}
-      aria-label="Color palette"
-      style={{
-        fontSize: "0.72rem",
-        padding: "3px 8px",
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        background: "var(--bg-card)",
-        color: "var(--text)",
-        cursor: "pointer",
-      }}
+      value={palette}
+      onChange={(e) => setPalette(e.target.value)}
+      style={SELECT_STYLE}
+      aria-label="Colour palette"
     >
       {Object.entries(PALETTES).map(([key, { label }]) => (
         <option key={key} value={key}>
@@ -425,95 +641,110 @@ export function HeatmapChart() {
   );
 
   return (
-    <ResponsiveChartWrapper
-      title="Global Weekly Average Temperatures — 2025"
-      controls={paletteControl}
-    >
-      {({ width, height }) => (
-        <>
-          {/* ── Loading ─────────────────────────────────────────── */}
-          {status === "loading" && (
-            <div style={OVERLAY_STYLE}>
-              <span style={{ color: "var(--chart-text)", fontSize: "0.85rem" }}>
-                Fetching 2025 temperature data…
-              </span>
-            </div>
-          )}
+    <>
+      {/* Inject keyframes once into the document. */}
+      <style>{ANIMATION_CSS}</style>
 
-          {/* ── Error ───────────────────────────────────────────── */}
-          {status === "error" && (
-            <div style={OVERLAY_STYLE}>
-              <span style={{ color: "#D55E00", fontSize: "0.85rem" }}>
-                ⚠ {fetchErr}
-              </span>
-            </div>
-          )}
+      <ResponsiveChartWrapper
+        title="Global Weekly Temperatures — 2025"
+        controls={paletteControl}
+      >
+        {({ width, height }) => {
+          const vals = data.map((d) => d.value).filter((v) => v != null);
+          const lo = d3.min(vals) ?? -15;
+          const hi = d3.max(vals) ?? 45;
+          const svgH = Math.max(0, height - LEGEND_H);
 
-          {/* ── Chart + legend ──────────────────────────────────── */}
-          {status === "ready" && (
-            <>
-              {/*
-               * The SVG takes height minus the legend strip so both fit
-               * inside the absolutely-positioned wrapper without overflow.
-               */}
+          if (loading) return <StatusMsg>Loading temperature data…</StatusMsg>;
+          if (error) return <StatusMsg error>⚠ {error}</StatusMsg>;
+
+          return (
+            // key forces DOM remount → CSS animation replays on new data load.
+            <div key={animKey} style={wrapperStyle}>
               <HeatmapSVG
                 width={width}
-                height={height - LEGEND_H}
+                height={svgH}
                 data={data}
                 colorScale={colorScale}
                 onTooltip={handleTooltip}
+                hoveredLegendTemp={hoveredTemp}
+                animationDone={animationDone}
+                animEnabled={animEnabled}
               />
 
-              {/* Color-scale legend anchored to the wrapper's bottom edge */}
-              <div style={{ position: "absolute", bottom: 4, left: 0, width }}>
+              {/* Legend aligns left edge with heatmap's y-axis (margin.left = 114px). */}
+              <div style={{ paddingLeft: 114 }}>
                 <ColorScaleLegend
                   colorScale={colorScale}
-                  min={minTemp}
-                  max={maxTemp}
-                  containerWidth={width}
+                  min={lo}
+                  max={hi}
+                  containerWidth={Math.max(0, width - 114)}
+                  onHover={handleLegendHover}
                 />
               </div>
-            </>
-          )}
 
-          {/* ── Tooltip (HTML, absolute-positioned per Design System) ── */}
-          {tooltip && (
-            <ChartTooltip
-              x={tooltip.x}
-              y={tooltip.y}
-              containerWidth={width}
-              containerHeight={height}
-            >
-              <div className="tooltip-title">
-                {tooltip.city} — Week {tooltip.week + 1}
-              </div>
-              <div className="tooltip-row">
-                <span
-                  className="tooltip-swatch"
-                  style={{ background: colorScale(tooltip.value) }}
-                />
-                <span className="tooltip-label">Avg Temp</span>
-                <span
-                  className="tooltip-value"
-                  style={{ color: colorScale(tooltip.value) }}
+              {tooltip && (
+                <ChartTooltip
+                  x={tooltip.x}
+                  y={tooltip.y}
+                  containerWidth={width}
+                  containerHeight={height}
                 >
-                  {tooltip.value.toFixed(1)}°C
-                </span>
-              </div>
-            </ChartTooltip>
-          )}
-        </>
-      )}
-    </ResponsiveChartWrapper>
+                  <div className="tooltip-title">{tooltip.city}</div>
+                  <div className="tooltip-row">
+                    <span
+                      className="tooltip-swatch"
+                      style={{ background: tooltip.fill }}
+                    />
+                    <span className="tooltip-label">
+                      {weekLabel(tooltip.week)}
+                    </span>
+                    <span
+                      className="tooltip-value"
+                      style={{ color: tooltip.fill }}
+                    >
+                      {tooltip.value.toFixed(1)}°C
+                    </span>
+                  </div>
+                </ChartTooltip>
+              )}
+            </div>
+          );
+        }}
+      </ResponsiveChartWrapper>
+    </>
   );
 }
 
-// ─── Shared style constants ────────────────────────────────────────────────────
+// ─── StatusMsg helper ─────────────────────────────────────────────────────────
 
-const OVERLAY_STYLE = {
-  position: "absolute",
-  inset: 0,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
+function StatusMsg({ children, error = false }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        fontSize: "0.8rem",
+        fontFamily: "var(--sans)",
+        color: error ? "#D55E00" : "var(--chart-text)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ─── Shared inline styles ─────────────────────────────────────────────────────
+
+const SELECT_STYLE = {
+  fontSize: "0.72rem",
+  padding: "3px 6px",
+  borderRadius: 6,
+  border: "1px solid var(--border)",
+  background: "var(--bg-card)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontFamily: "var(--sans)",
 };
