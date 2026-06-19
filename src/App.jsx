@@ -26,9 +26,9 @@ function App() {
         <h1>🌡️ Global Temperature Dashboard</h1>
         <p className="subtitle">Weekly Average Temperatures — 2025</p>
         <p className="description">
-          The Temperature Dashboard offers a visualization of global
-          temperatures in 2025 showcaseed through a heatmap. The data is sourced
-          from the Open-Meteo and is updated weekly to provide insights into
+          Tise temperature dashboard offers a visualization of global
+          temperatures in 2025, showcased through a heatmap. The data is sourced
+          from Open-Meteo and is updated weekly to provide insights into
           temperature trends across different regions. The heatmap allows users
           to easily identify patterns and anomalies in global temperatures,
           making it a valuable tool for climate researchers, educators, and
@@ -50,9 +50,9 @@ function App() {
       >
         {/* Footer content including data source ans social links */}
         <p className="data-source">
-          Data source: Open-Meteo · Data updated weekly · Scaffolding by Claude
-          Sonnet 4.6 · Visualization by Jeremiah King as part of D3 Loves React
-          course taught by Yan Holtz
+          Data source: Open-Meteo, 2026 · Scaffolding by Claude Sonnet 4.6 ·
+          Visualization by Jeremiah King as part of D3 Loves React course taught
+          by Yan Holtz
         </p>
         {/* Social media link for Github */}
         <a
