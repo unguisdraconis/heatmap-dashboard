@@ -144,7 +144,7 @@ body {
 
 .dashboard-grid {
   display: grid; /* Grid layout for dashboard content */
-  grid-template-columns: 1fr 1fr; /* Two equal-width columns */
+  grid-template-columns: 1fr; /* Single column layout*/
   gap: 1rem; /* Space between grid items */
   padding: 1rem;
   max-width: 1440px; /* Limits maximum widthh of the grid */
@@ -644,4 +644,9 @@ importance */
     height: 380px;
     padding: 0.75rem;
   }
+}
+
+/* HeatmapChart needs extra row height for 20 cities */
+.heatmap-card {
+  height: 580px;
 }
