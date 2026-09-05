@@ -23,16 +23,13 @@ function App() {
         transition={motionTransition}
       >
         {/* Header content including title and description */}
-        <h1>🌡️ Global Temperature Dashboard</h1>
+        <h1> 🌍 Global Temperature Dashboard 🌡️</h1>
         <p className="subtitle">Weekly Average Temperatures — 2025</p>
         <p className="description">
-          Tise temperature dashboard offers a visualization of global
+          This temperature dashboard offers a visualization of global
           temperatures in 2025, showcased through a heatmap. The data is sourced
           from Open-Meteo and is updated weekly to provide insights into
-          temperature trends across different regions. The heatmap allows users
-          to easily identify patterns and anomalies in global temperatures,
-          making it a valuable tool for climate researchers, educators, and
-          anyone interested in understanding our planet's changing climate.
+          temperature trends across different regions.
         </p>
       </motion.header>
 
@@ -48,35 +45,12 @@ function App() {
         animate={{ y: 0 }}
         transition={motionTransition}
       >
-        {/* Footer content including data source ans social links */}
+        {/* Footer content including the data source */}
         <p className="data-source">
           Data source: Open-Meteo, 2026 · Scaffolding by Claude Sonnet 4.6 ·
           Visualization by Jeremiah King as part of D3 Loves React course taught
           by Yan Holtz
         </p>
-        {/* Social media link for Github */}
-        <a
-          className="social-button"
-          href="https://github.com/unguisdraconis"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="GitHub page"
-          title="GitHub"
-        >
-          🐙
-        </a>
-
-        {/* Social media link for LinkedIn */}
-        <a
-          className="social-button"
-          href="https://www.linkedin.com/in/jeremiahjking"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="LinkedIn profile"
-          title="LinkedIn"
-        >
-          🔗
-        </a>
       </motion.footer>
     </>
   );

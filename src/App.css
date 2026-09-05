@@ -34,12 +34,6 @@ body,
     178,
     0.5
   ); /* Semi-transparent border using accent color */
-  --social-bg: rgba(
-    244,
-    243,
-    236,
-    0.5
-  ); /* Background for social buttons in light theme */
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px; /* Box shadow for light theme */
 
@@ -82,12 +76,6 @@ body,
       233,
       0.5
     ); /* Semi-transparent border using accent color */
-    --social-bg: rgba(
-      47,
-      48,
-      58,
-      0.5
-    ); /* Background for social buttons in dark theme */
     --shadow:
       rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px; /* Box shadow for dark theme */
 
@@ -179,36 +167,6 @@ body {
   font-size: 0.8rem;
   opacity: 0.6; /* Even more transparent for secondary information */
   margin-top: 0.15rem;
-}
-
-.dashboard-footer .social-button {
-  width: 40px;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px; /* Creates a circular shape for the buttons */
-  border: 1px solid rgba(0, 0, 0, 0.2); /* Slightly visible border */
-  background: white;
-  color: #333; /* Dark text on button */
-  text-decoration: none;
-  font-size: 20px;
-  margin-top: 0.75rem;
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease,
-    border-color 0.15s ease; /* Smooth transitions for hover effects */
-}
-
-.dashboard-footer .social-button:hover {
-  text-align: center;
-  background: rgba(255, 255, 255, 0.9); /* Lightens button on hover */
-  border-color: rgba(0, 0, 0, 0.35); /* Darkens border on hover */
-  transform: translateY(-1px); /* Moves button slightly up on hover */
-}
-
-.dashboard-footer .social-button:focus-visible {
-  box-shadow: 0 0 0 3px rgba(0, 114, 178, 0.5); /* Focus indicator for accessibility */
 }
 
 /* ===== Chart Widget Card Styles ===== */
