@@ -23,13 +23,13 @@ function App() {
         transition={motionTransition}
       >
         {/* Header content including title and description */}
-        <h1> 🌍 Global Temperature Dashboard 🌡️</h1>
-        <p className="subtitle">Weekly Average Temperatures — 2025</p>
+        <h1> 🌍 Temperature Patterns for 20 Cities 🌡️</h1>
+        <p className="subtitle">Historical mean temperatures across 2025</p>
         <p className="description">
-          This temperature dashboard offers a visualization of global
-          temperatures in 2025, showcased through a heatmap. The data is sourced
-          from Open-Meteo and is updated weekly to provide insights into
-          temperature trends across different regions.
+          Daily mean temperatures for 20 selected cities are retrieved at runtime
+          and aggregated into 52 sequential periods. The first 51 periods span
+          seven days; the final period spans December 24–31 to preserve a
+          52-column view of 2025.
         </p>
       </motion.header>
 
@@ -47,9 +47,12 @@ function App() {
       >
         {/* Footer content including the data source */}
         <p className="data-source">
-          Data source: Open-Meteo, 2026 · Scaffolding by Claude Sonnet 4.6 ·
-          Visualization by Jeremiah King as part of D3 Loves React course taught
-          by Yan Holtz
+          Data source:{" "}
+          <a href="https://open-meteo.com/en/docs/historical-weather-api">
+            Open-Meteo Historical Weather API
+          </a>{" "}
+          (CC BY 4.0) · Scaffolding by Claude Sonnet 4.6 · Visualization by
+          Jeremiah King as part of the D3 Loves React course taught by Yan Holtz
         </p>
       </motion.footer>
     </>

@@ -1,6 +1,6 @@
 /**
  * HeatmapChart.jsx
- * Global Weekly Average Temperatures — 2025
+ * Mean Temperature Patterns for 20 Cities — 2025
  *
  * New in this version
  * ───────────────────
@@ -64,9 +64,10 @@ const CITIES = [
 const CITY_NAMES = CITIES.map((c) => c.name);
 const YEAR_START = new Date("2025-01-01");
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const NUM_WEEKS = 52;
+const YEAR_END = new Date("2025-12-31");
+const NUM_PERIODS = 52;
 
-const MONTH_TICK_WEEKS = [0, 4, 8, 13, 17, 22, 26, 30, 35, 39, 43, 48];
+const MONTH_TICK_PERIODS = [0, 4, 8, 13, 17, 22, 26, 30, 35, 39, 43, 48];
 const MONTH_TICK_LABELS = [
   "Jan",
   "Feb",
@@ -162,37 +163,44 @@ async function loadHeatmapData() {
   const json = await res.json();
   const cityResults = Array.isArray(json) ? json : [json];
 
-  // 1. Flatten → long daily rows tagged with week bucket 0–51.
+  // 1. Flatten → long daily rows tagged with period 0–51.
   const daily = cityResults.flatMap((city, i) =>
     city.daily.time.map((t, j) => ({
       city: CITIES[i].name,
-      week: Math.min(
-        NUM_WEEKS - 1,
+      period: Math.min(
+        NUM_PERIODS - 1,
         Math.floor((new Date(t) - YEAR_START) / WEEK_MS),
       ),
       temp: city.daily.temperature_2m_mean[j],
     })),
   );
 
-  // 2. Average daily temps → one mean per city × week cell.
+  // 2. Average daily temps → one mean per city × displayed period.
   return d3.rollups(
     daily,
     (v) => d3.mean(v, (d) => d.temp),
     (d) => d.city,
-    (d) => d.week,
-  ).flatMap(([city, weeks]) =>
-    weeks.map(([week, value]) => ({ city, week, value })),
+    (d) => d.period,
+  ).flatMap(([city, periods]) =>
+    periods.map(([period, value]) => ({ city, period, value })),
   );
-  // → [{ city: 'Reykjavik', week: 0, value: -0.4 }, …]  (up to 20 × 52 cells)
+  // → [{ city: 'Reykjavik', period: 0, value: -0.4 }, …] (up to 20 × 52 cells)
 }
 
-// ─── Week date label ──────────────────────────────────────────────────────────
+// ─── Displayed period date label ──────────────────────────────────────────────
 
-function weekLabel(weekIndex) {
-  const start = new Date(YEAR_START.getTime() + weekIndex * WEEK_MS);
-  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+function periodDateRange(periodIndex) {
+  const start = new Date(YEAR_START.getTime() + periodIndex * WEEK_MS);
+  const end =
+    periodIndex === NUM_PERIODS - 1
+      ? YEAR_END
+      : new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
   const fmt = (d) =>
-    d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
@@ -402,7 +410,7 @@ function HeatmapSVG({
   // ── O(1) cell-value lookup ───────────────────────────────────────────────
   const cellMap = useMemo(() => {
     const m = new Map();
-    data.forEach((d) => m.set(`${d.city}|${d.week}`, d.value));
+    data.forEach((d) => m.set(`${d.city}|${d.period}`, d.value));
     return m;
   }, [data]);
 
@@ -413,7 +421,7 @@ function HeatmapSVG({
       .filter((d) => d.value != null)
       .sort((a, b) => a.value - b.value);
     return {
-      rankMap: new Map(sorted.map((d, i) => [`${d.city}|${d.week}`, i])),
+      rankMap: new Map(sorted.map((d, i) => [`${d.city}|${d.period}`, i])),
       totalCells: sorted.length,
     };
   }, [data]);
@@ -426,7 +434,7 @@ function HeatmapSVG({
   const w = Math.max(0, width - margin.left - margin.right);
   const h = Math.max(0, height - margin.top - margin.bottom);
 
-  const bandW = w / NUM_WEEKS;
+  const bandW = w / NUM_PERIODS;
   const yScale = useMemo(
     () => d3.scaleBand().domain(CITY_NAMES).range([0, h]).paddingInner(0.06),
     [h],
@@ -492,8 +500,8 @@ function HeatmapSVG({
         ))}
 
         {/* ── Month ticks (X axis) ─────────────────────────────────────── */}
-        {MONTH_TICK_WEEKS.map((wk, i) => (
-          <g key={i} transform={`translate(${wk * bandW},${h + 4})`}>
+        {MONTH_TICK_PERIODS.map((period, i) => (
+          <g key={i} transform={`translate(${period * bandW},${h + 4})`}>
             <line y2={4} stroke={cssVar("--chart-axis")} strokeWidth={1} />
             <text
               y={13}
@@ -509,15 +517,15 @@ function HeatmapSVG({
 
         {/* ── Heatmap cells ─────────────────────────────────────────────── */}
         {CITY_NAMES.flatMap((city) =>
-          Array.from({ length: NUM_WEEKS }, (_, week) => {
-            const value = cellMap.get(`${city}|${week}`);
+          Array.from({ length: NUM_PERIODS }, (_, period) => {
+            const value = cellMap.get(`${city}|${period}`);
             if (value == null) return null;
 
             // Phase A: staggered CSS animation (opacity not set by React).
             // Phase B: no inline style — D3 useEffect owns opacity.
             let animStyle;
             if (animEnabled && !animationDone) {
-              const rank = rankMap.get(`${city}|${week}`) ?? 0;
+              const rank = rankMap.get(`${city}|${period}`) ?? 0;
               const delay =
                 EASE_IN_MS + (rank / Math.max(1, totalCells - 1)) * FILL_MS;
               animStyle = {
@@ -528,10 +536,10 @@ function HeatmapSVG({
 
             return (
               <rect
-                key={`${city}-${week}`}
+                key={`${city}-${period}`}
                 className="hm-cell"
                 data-value={value} // read by the D3 hover effect
-                x={week * bandW}
+                x={period * bandW}
                 y={yScale(city) ?? 0}
                 width={Math.max(0, bandW - 0.6)}
                 height={Math.max(0, bandH)}
@@ -542,10 +550,10 @@ function HeatmapSVG({
                   animationDone
                     ? () =>
                         onTooltip({
-                          x: week * bandW + margin.left + bandW / 2,
+                          x: period * bandW + margin.left + bandW / 2,
                           y: (yScale(city) ?? 0) + margin.top,
                           city,
-                          week,
+                          period,
                           value,
                           fill: colorScale(value),
                         })
@@ -645,7 +653,7 @@ export function HeatmapChart() {
       <style>{ANIMATION_CSS}</style>
 
       <ResponsiveChartWrapper
-        title="Global Weekly Temperatures — 2025"
+        title="Mean Temperature Patterns — 2025"
         controls={paletteControl}
       >
         {({ width, height }) => {
@@ -696,7 +704,7 @@ export function HeatmapChart() {
                       style={{ background: tooltip.fill }}
                     />
                     <span className="tooltip-label">
-                      {weekLabel(tooltip.week)}
+                      {periodDateRange(tooltip.period)}
                     </span>
                     <span
                       className="tooltip-value"
