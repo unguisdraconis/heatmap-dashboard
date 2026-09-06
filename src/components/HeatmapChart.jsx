@@ -32,7 +32,6 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import * as d3 from "d3";
-import { rollups, mean } from "d3-array";
 import { ResponsiveChartWrapper } from "./ResponsiveChartWrapper";
 import { ChartTooltip } from "./ChartTooltip";
 import { cssVar } from "../utils/cssVar";
@@ -176,9 +175,9 @@ async function loadHeatmapData() {
   );
 
   // 2. Average daily temps → one mean per city × week cell.
-  return rollups(
+  return d3.rollups(
     daily,
-    (v) => mean(v, (d) => d.temp),
+    (v) => d3.mean(v, (d) => d.temp),
     (d) => d.city,
     (d) => d.week,
   ).flatMap(([city, weeks]) =>
