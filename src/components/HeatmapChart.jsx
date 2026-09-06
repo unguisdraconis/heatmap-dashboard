@@ -635,11 +635,12 @@ export function HeatmapChart() {
   const [tooltip, setTooltip] = useState(null);
   const [hoveredTemp, setHoveredTemp] = useState(null); // legend hover (°C | null)
   const [animKey, setAnimKey] = useState(0); // bump to replay animation
-  const [animationDone, setAnimationDone] = useState(false);
+  const [animationFinished, setAnimationFinished] = useState(false);
   const [selectedCity, setSelectedCity] = useState(CITY_NAMES[0]);
 
   const prefersReducedMotion = useReducedMotion();
   const animEnabled = !prefersReducedMotion;
+  const animationDone = !animEnabled || animationFinished;
 
   const handleTooltip = useCallback((v) => setTooltip(v), []);
   const handleLegendHover = useCallback((temp) => setHoveredTemp(temp), []);
@@ -651,25 +652,21 @@ export function HeatmapChart() {
         setData(d);
         setLoading(false);
         setAnimKey((k) => k + 1); // replay animation on fresh data
-        setAnimationDone(false);
+        setAnimationFinished(false);
       })
       .catch((e) => {
         setError(e.message);
         setLoading(false);
-        setAnimationDone(true);
+        setAnimationFinished(true);
       });
   }, []);
 
   // ── Mark animation complete after the last cell finishes ───────────────────
   // Timer = wrapper ease-in + full stagger window + one cell duration + buffer.
   useEffect(() => {
-    if (!animEnabled || !data.length) {
-      setAnimationDone(true);
-      return;
-    }
-    setAnimationDone(false);
+    if (!animEnabled || !data.length) return;
     const ms = EASE_IN_MS + FILL_MS + CELL_DURATION + ANIM_BUFFER;
-    const t = setTimeout(() => setAnimationDone(true), ms);
+    const t = setTimeout(() => setAnimationFinished(true), ms);
     return () => clearTimeout(t);
   }, [animKey, animEnabled, data.length]);
 
