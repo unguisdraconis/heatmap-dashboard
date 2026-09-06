@@ -83,8 +83,9 @@ const MONTH_TICK_LABELS = [
   "Dec",
 ];
 
-// Pixels below the SVG reserved for the colour-scale legend strip.
-const LEGEND_H = 60;
+// Pixels below the SVG reserved for the interactive colour-scale legend.
+const LEGEND_H = 76;
+const LEGEND_KEYBOARD_RANGES = 5;
 
 // ─── Animation constants ──────────────────────────────────────────────────────
 
@@ -215,9 +216,25 @@ function periodDateRange(periodIndex) {
 function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
   const canvasRef = useRef(null);
   const [hover, setHover] = useState(null); // { x: px, temp: °C } | null
+  const [focusedRange, setFocusedRange] = useState(null);
 
   const gradW = Math.max(100, Math.min(containerWidth - 150, 380));
   const gradH = 12;
+  const keyboardRanges = useMemo(() => {
+    const span = max - min;
+    const highlightBand = span * HOVER_BAND_PCT;
+
+    return Array.from({ length: LEGEND_KEYBOARD_RANGES }, (_, index) => {
+      const temp = min + ((index + 0.5) / LEGEND_KEYBOARD_RANGES) * span;
+      return {
+        temp,
+        min: Math.max(min, temp - highlightBand),
+        max: Math.min(max, temp + highlightBand),
+        x: ((index + 0.5) / LEGEND_KEYBOARD_RANGES) * gradW,
+      };
+    });
+  }, [min, max, gradW]);
+  const activeIndicator = hover ?? focusedRange;
 
   // Paint gradient whenever scale, domain, or dimensions change.
   useEffect(() => {
@@ -254,8 +271,8 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
 
   const handleMouseLeave = useCallback(() => {
     setHover(null);
-    onHover(null);
-  }, [onHover]);
+    onHover(focusedRange?.temp ?? null);
+  }, [focusedRange, onHover]);
 
   // Tick positions derived from a D3 linear helper scale.
   const tickScale = useMemo(
@@ -265,106 +282,134 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
   const ticks = tickScale.ticks(5);
 
   // Clamp floating label so it doesn't overflow the canvas edges.
-  const labelX = hover ? Math.max(22, Math.min(gradW - 22, hover.x)) : 0;
+  const labelX = activeIndicator
+    ? Math.max(32, Math.min(gradW - 32, activeIndicator.x))
+    : 0;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 8,
-        paddingTop: 6,
-      }}
-    >
-      {/* Cold-end label */}
-      <span style={LABEL_STYLE}>{min.toFixed(1)}°C</span>
+    <div className="temperature-legend">
+      <p id="legend-instructions" className="legend-instructions">
+        Explore by hovering over or focusing a temperature range.
+      </p>
+      <div className="legend-scale-row">
+        {/* Cold-end label */}
+        <span style={LABEL_STYLE}>{min.toFixed(1)}°C</span>
 
-      <div>
-        {/* Gradient canvas + hover overlay */}
-        <div style={{ position: "relative", display: "inline-block" }}>
-          <canvas
-            ref={canvasRef}
-            width={gradW}
-            height={gradH}
-            style={{
-              display: "block",
-              borderRadius: 2,
-              border: `1px solid ${cssVar("--border")}`,
-              cursor: "crosshair",
-            }}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
-            aria-label="Colour scale — hover to highlight matching cells"
-          />
-
-          {/* Vertical indicator line */}
-          {hover && (
-            <div
+        <div>
+          {/* Existing continuous pointer-hover gradient. */}
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <canvas
+              ref={canvasRef}
+              width={gradW}
+              height={gradH}
               style={{
-                position: "absolute",
-                top: 0,
-                left: hover.x,
-                width: 2,
-                height: gradH,
-                background: "rgba(255,255,255,0.92)",
-                boxShadow: "0 0 5px rgba(0,0,0,0.5)",
-                borderRadius: 1,
-                pointerEvents: "none",
-                transform: "translateX(-50%)",
+                display: "block",
+                borderRadius: 2,
+                border: `1px solid ${cssVar("--border")}`,
+                cursor: "crosshair",
               }}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+              aria-label="Continuous temperature scale"
             />
-          )}
 
-          {/* Floating temperature label below indicator */}
-          {hover && (
-            <div
-              style={{
-                position: "absolute",
-                top: gradH + 2,
-                left: labelX,
-                transform: "translateX(-50%)",
-                background: cssVar("--chart-tooltip-bg"),
-                border: `1px solid ${cssVar("--chart-tooltip-border")}`,
-                borderRadius: 4,
-                padding: "2px 5px",
-                fontSize: 9,
-                fontFamily: "var(--mono)",
-                color: cssVar("--chart-tooltip-text"),
-                pointerEvents: "none",
-                whiteSpace: "nowrap",
-                zIndex: 20,
-              }}
-            >
-              {hover.temp.toFixed(1)}°C
-            </div>
-          )}
+            {/* Vertical indicator line */}
+            {activeIndicator && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: activeIndicator.x,
+                  width: 2,
+                  height: gradH,
+                  background: "rgba(255,255,255,0.92)",
+                  boxShadow: "0 0 5px rgba(0,0,0,0.5)",
+                  borderRadius: 1,
+                  pointerEvents: "none",
+                  transform: "translateX(-50%)",
+                }}
+              />
+            )}
+
+            {/* Floating temperature label below indicator */}
+            {activeIndicator && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: gradH + 2,
+                  left: labelX,
+                  transform: "translateX(-50%)",
+                  background: cssVar("--chart-tooltip-bg"),
+                  border: `1px solid ${cssVar("--chart-tooltip-border")}`,
+                  borderRadius: 4,
+                  padding: "2px 5px",
+                  fontSize: 9,
+                  fontFamily: "var(--mono)",
+                  color: cssVar("--chart-tooltip-text"),
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  zIndex: 20,
+                }}
+              >
+                {focusedRange && !hover
+                  ? `${focusedRange.min.toFixed(1)}–${focusedRange.max.toFixed(1)}°C`
+                  : `${activeIndicator.temp.toFixed(1)}°C`}
+              </div>
+            )}
+          </div>
+
+          {/* D3 tick marks */}
+          <svg
+            width={gradW}
+            height={20}
+            style={{ display: "block", overflow: "visible" }}
+            aria-hidden="true"
+          >
+            {ticks.map((t) => (
+              <g key={t} transform={`translate(${tickScale(t)},0)`}>
+                <line y2={4} stroke={cssVar("--chart-axis")} strokeWidth={1} />
+                <text
+                  y={14}
+                  textAnchor="middle"
+                  fill={cssVar("--chart-text")}
+                  fontSize={9}
+                  fontFamily="var(--mono)"
+                >
+                  {t.toFixed(0)}°
+                </text>
+              </g>
+            ))}
+          </svg>
+
+          <div
+            className="legend-keyboard-ranges"
+            role="group"
+            aria-label="Keyboard temperature ranges"
+            aria-describedby="legend-instructions"
+          >
+            {keyboardRanges.map((range, index) => (
+              <button
+                key={index}
+                type="button"
+                className="legend-range-button"
+                style={{ background: colorScale(range.temp) }}
+                aria-label={`${range.min.toFixed(1)} to ${range.max.toFixed(1)} degrees Celsius`}
+                onFocus={() => {
+                  setFocusedRange(range);
+                  onHover(range.temp);
+                }}
+                onBlur={() => {
+                  setFocusedRange(null);
+                  onHover(hover?.temp ?? null);
+                }}
+              />
+            ))}
+          </div>
         </div>
 
-        {/* D3 tick marks */}
-        <svg
-          width={gradW}
-          height={20}
-          style={{ display: "block", overflow: "visible" }}
-        >
-          {ticks.map((t) => (
-            <g key={t} transform={`translate(${tickScale(t)},0)`}>
-              <line y2={4} stroke={cssVar("--chart-axis")} strokeWidth={1} />
-              <text
-                y={14}
-                textAnchor="middle"
-                fill={cssVar("--chart-text")}
-                fontSize={9}
-                fontFamily="var(--mono)"
-              >
-                {t.toFixed(0)}°
-              </text>
-            </g>
-          ))}
-        </svg>
+        {/* Warm-end label */}
+        <span style={LABEL_STYLE}>{max.toFixed(1)}°C</span>
       </div>
-
-      {/* Warm-end label */}
-      <span style={LABEL_STYLE}>{max.toFixed(1)}°C</span>
     </div>
   );
 }
@@ -481,7 +526,18 @@ function HeatmapSVG({
       width={width}
       height={height}
       style={{ overflow: "visible" }}
+      role="img"
+      aria-labelledby="heatmap-svg-title heatmap-svg-description"
     >
+      <title id="heatmap-svg-title">
+        2025 mean temperature patterns for 20 selected cities
+      </title>
+      <desc id="heatmap-svg-description">
+        Historical daily mean temperatures are aggregated into 52 displayed
+        periods. Color represents mean temperature. The interactive legend
+        highlights matching temperature ranges, and precise values are available
+        in the structured data view.
+      </desc>
       <g transform={`translate(${margin.left},${margin.top})`}>
         {/* ── City labels (Y axis) ─────────────────────────────────────── */}
         {CITY_NAMES.map((city) => (
@@ -580,6 +636,7 @@ export function HeatmapChart() {
   const [hoveredTemp, setHoveredTemp] = useState(null); // legend hover (°C | null)
   const [animKey, setAnimKey] = useState(0); // bump to replay animation
   const [animationDone, setAnimationDone] = useState(false);
+  const [selectedCity, setSelectedCity] = useState(CITY_NAMES[0]);
 
   const prefersReducedMotion = useReducedMotion();
   const animEnabled = !prefersReducedMotion;
@@ -623,6 +680,13 @@ export function HeatmapChart() {
     const hi = d3.max(vals) ?? 45;
     return d3.scaleSequential(PALETTES[palette].fn).domain([lo, hi]);
   }, [palette, data]);
+  const selectedCityData = useMemo(
+    () =>
+      data
+        .filter((d) => d.city === selectedCity)
+        .sort((a, b) => a.period - b.period),
+    [data, selectedCity],
+  );
 
   // ── Wrapper entrance animation ─────────────────────────────────────────────
   // key={animKey} forces a new DOM node on data load, which restarts the
@@ -719,6 +783,49 @@ export function HeatmapChart() {
           );
         }}
       </ResponsiveChartWrapper>
+
+      {data.length > 0 && (
+        <details className="exact-values">
+          <summary>View exact temperature values</summary>
+          <div className="exact-values-controls">
+            <label htmlFor="exact-values-city">City</label>
+            <select
+              id="exact-values-city"
+              value={selectedCity}
+              onChange={(event) => setSelectedCity(event.target.value)}
+            >
+              {CITY_NAMES.map((city) => (
+                <option key={city} value={city}>
+                  {city}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="exact-values-table-wrapper">
+            <table>
+              <caption>
+                Mean temperatures for {selectedCity} across 52 periods in 2025
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Period</th>
+                  <th scope="col">Date range</th>
+                  <th scope="col">Mean temperature</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedCityData.map(({ period, value }) => (
+                  <tr key={period}>
+                    <th scope="row">{period + 1}</th>
+                    <td>{periodDateRange(period)}</td>
+                    <td>{value.toFixed(1)}°C</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
     </>
   );
 }

@@ -18,7 +18,7 @@ export function ResponsiveChartWrapper({ title, controls, legend, children }) {
   const [ref, dimensions] = useDimensions();
   const prefersReducedMotion = useReducedMotion();
   const motionTransition = prefersReducedMotion
-    ? { duration: 250 }
+    ? { duration: 0 }
     : { duration: 0.35, ease: "easeOut" };
 
   return (

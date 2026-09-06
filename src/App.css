@@ -286,6 +286,108 @@ body {
   text-align: right; /* Aligns numerical values to the right */
 }
 
+/* ===== Interactive Temperature Legend ===== */
+.temperature-legend {
+  padding-top: 2px;
+}
+
+.legend-instructions {
+  margin-bottom: 2px;
+  color: var(--chart-text);
+  font-size: 0.68rem;
+}
+
+.legend-scale-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.legend-keyboard-ranges {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  margin-top: 1px;
+}
+
+.legend-range-button {
+  min-width: 0;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.legend-range-button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid var(--text-h);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px var(--bg-card);
+}
+
+/* ===== Secondary Exact-value View ===== */
+.exact-values {
+  padding: 0.85rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.exact-values summary {
+  color: var(--text-h);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.exact-values-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.exact-values-controls select {
+  padding: 0.3rem 0.5rem;
+  color: var(--text-h);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.exact-values-table-wrapper {
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.exact-values table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.exact-values caption {
+  margin-bottom: 0.5rem;
+  color: var(--text-h);
+  font-weight: 600;
+  text-align: left;
+}
+
+.exact-values th,
+.exact-values td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.exact-values thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+}
+
 /* ===== Responsive adjustments ===== */
 /* Media queries adjust the layout and styling of componenets for smaller screen sizes */
 @media (max-width: 768px) {
