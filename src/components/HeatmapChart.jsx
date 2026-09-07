@@ -529,11 +529,9 @@ function HeatmapSVG({
       height={height}
       style={{ overflow: "visible" }}
       role="img"
-      aria-labelledby="heatmap-svg-title heatmap-svg-description"
+      aria-label="2025 mean temperature patterns for 20 selected cities"
+      aria-describedby="heatmap-svg-description"
     >
-      <title id="heatmap-svg-title">
-        2025 mean temperature patterns for 20 selected cities
-      </title>
       <desc id="heatmap-svg-description">
         Historical daily mean temperatures are aggregated into 52 displayed
         periods. Color represents mean temperature. The interactive legend
