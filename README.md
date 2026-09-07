@@ -6,6 +6,8 @@ This D3 Loves React learning exercise visualizes 2025 historical mean temperatur
 
 https://unguisdraconis.github.io/heatmap-dashboard/
 
+![Interactive heatmap of 20 cities' temperatures in 2025.](docs/images/heatmap-dashboard.png)
+
 ## What it demonstrates
 
 - Runtime historical-data retrieval
