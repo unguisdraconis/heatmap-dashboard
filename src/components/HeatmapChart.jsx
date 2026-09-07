@@ -85,7 +85,7 @@ const MONTH_TICK_LABELS = [
 
 // Pixels below the SVG reserved for the interactive colour-scale legend.
 const LEGEND_H = 76;
-const LEGEND_KEYBOARD_RANGES = 5;
+const LEGEND_RANGES = 5;
 
 // ─── Animation constants ──────────────────────────────────────────────────────
 
@@ -220,17 +220,17 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
 
   const gradW = Math.max(100, Math.min(containerWidth - 150, 380));
   const gradH = 12;
-  const keyboardRanges = useMemo(() => {
+  const legendRanges = useMemo(() => {
     const span = max - min;
     const highlightBand = span * HOVER_BAND_PCT;
 
-    return Array.from({ length: LEGEND_KEYBOARD_RANGES }, (_, index) => {
-      const temp = min + ((index + 0.5) / LEGEND_KEYBOARD_RANGES) * span;
+    return Array.from({ length: LEGEND_RANGES }, (_, index) => {
+      const temp = min + ((index + 0.5) / LEGEND_RANGES) * span;
       return {
         temp,
         min: Math.max(min, temp - highlightBand),
         max: Math.min(max, temp + highlightBand),
-        x: ((index + 0.5) / LEGEND_KEYBOARD_RANGES) * gradW,
+        x: ((index + 0.5) / LEGEND_RANGES) * gradW,
       };
     });
   }, [min, max, gradW]);
@@ -289,15 +289,19 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
   return (
     <div className="temperature-legend">
       <p id="legend-instructions" className="legend-instructions">
-        Explore by hovering over or focusing a temperature range.
+        Hover or focus a temperature range to explore matching cells.
       </p>
       <div className="legend-scale-row">
         {/* Cold-end label */}
         <span style={LABEL_STYLE}>{min.toFixed(1)}°C</span>
 
         <div>
-          {/* Existing continuous pointer-hover gradient. */}
-          <div style={{ position: "relative", display: "inline-block" }}>
+          {/* The visible gradient is the shared pointer and keyboard control. */}
+          <div
+            className="legend-gradient"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
             <canvas
               ref={canvasRef}
               width={gradW}
@@ -308,10 +312,32 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
                 border: `1px solid ${cssVar("--border")}`,
                 cursor: "crosshair",
               }}
-              onMouseMove={handleMouseMove}
-              onMouseLeave={handleMouseLeave}
-              aria-label="Continuous temperature scale"
+              aria-hidden="true"
             />
+
+            <div
+              className="legend-range-controls"
+              role="group"
+              aria-label="Temperature ranges"
+              aria-describedby="legend-instructions"
+            >
+              {legendRanges.map((range, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className="legend-range"
+                  aria-label={`${range.min.toFixed(1)} to ${range.max.toFixed(1)} degrees Celsius`}
+                  onFocus={() => {
+                    setFocusedRange(range);
+                    onHover(range.temp);
+                  }}
+                  onBlur={() => {
+                    setFocusedRange(null);
+                    onHover(hover?.temp ?? null);
+                  }}
+                />
+              ))}
+            </div>
 
             {/* Vertical indicator line */}
             {activeIndicator && (
@@ -381,30 +407,6 @@ function ColorScaleLegend({ colorScale, min, max, containerWidth, onHover }) {
             ))}
           </svg>
 
-          <div
-            className="legend-keyboard-ranges"
-            role="group"
-            aria-label="Keyboard temperature ranges"
-            aria-describedby="legend-instructions"
-          >
-            {keyboardRanges.map((range, index) => (
-              <button
-                key={index}
-                type="button"
-                className="legend-range-button"
-                style={{ background: colorScale(range.temp) }}
-                aria-label={`${range.min.toFixed(1)} to ${range.max.toFixed(1)} degrees Celsius`}
-                onFocus={() => {
-                  setFocusedRange(range);
-                  onHover(range.temp);
-                }}
-                onBlur={() => {
-                  setFocusedRange(null);
-                  onHover(hover?.temp ?? null);
-                }}
-              />
-            ))}
-          </div>
         </div>
 
         {/* Warm-end label */}

@@ -303,23 +303,29 @@ body {
   gap: 8px;
 }
 
-.legend-keyboard-ranges {
+.legend-gradient {
+  position: relative;
+  display: inline-block;
+}
+
+.legend-range-controls {
+  position: absolute;
+  inset: 0;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 2px;
-  margin-top: 1px;
 }
 
-.legend-range-button {
+.legend-range {
+  appearance: none;
   min-width: 0;
-  height: 7px;
   padding: 0;
   border: 0;
-  border-radius: 2px;
-  cursor: pointer;
+  border-radius: 0;
+  background: transparent;
+  cursor: crosshair;
 }
 
-.legend-range-button:focus-visible {
+.legend-range:focus-visible {
   position: relative;
   z-index: 1;
   outline: 3px solid var(--text-h);

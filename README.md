@@ -42,8 +42,7 @@ npm run build
 
 ## Accessibility and limitations
 
-- The interactive legend is the primary pattern-exploration interface: pointer hover over the continuous scale and keyboard focus on its range controls use the same heatmap-highlighting mechanism.
-- Exact values for a selected city are available in the structured table below the visualization.
+- The temperature legend is intentionally the primary exploratory interface. Pointer hover and keyboard focus operate the same range-highlighting behavior, while a secondary structured table provides exact values. This preserves Jeremiah King's minimalist design intent.
 - Individual heatmap cells and their tooltips remain pointer-oriented.
 - The 20 cities are a selected sample, not comprehensive global coverage.
 - Runtime historical values are not a frozen reproducible snapshot.
